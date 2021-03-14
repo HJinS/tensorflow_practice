@@ -1,2 +1,3 @@
-tens/**/**/*.csv
+tens/*.csv
+tens/datasets
 venv
