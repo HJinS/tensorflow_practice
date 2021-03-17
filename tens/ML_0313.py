@@ -51,7 +51,7 @@ housing.hist(bins=50, figsize=(20, 15))
 train_set, test_set = train_test_split(housing, test_size=0.2, random_state=42)
 
 corr_matrix = housing.corr()
-corr_matrix["median_house_value"].sort_values(ascending=False        )
+corr_matrix["median_house_value"].sort_values(ascending=False)
 
 
 attr_addr = CombinedAttributesAdder(add_bedrooms_per_room=False)
