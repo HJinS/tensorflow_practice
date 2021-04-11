@@ -69,3 +69,8 @@ for epoch in range(EPOCHS):
                         train_accuracy.result() * 100,
                         test_loss.result(),
                         test_accuracy.result() * 100))
+
+model.compile(optimizer=optimizer, loss=loss_object, metrics=['accuracy'])
+    train_history = model.fit(train, epochs=EPOCHS, batch_size=BATCH_SIZE, callbacks=[tf.keras.callbacks.EarlyStopping(patience=3, monitor='loss'), tensorboard_callback_training])
+
+    test_history = model.predict(test, batch_size=BATCH_SIZE, use_multiprocessing=True, steps=100, callbacks=[tensorboard_callback_test])

@@ -1,3 +1,5 @@
 venv
 data_set.hdf5
 Food_data
+logs
+Training1
