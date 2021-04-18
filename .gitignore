@@ -1,5 +1,10 @@
 venv
 data_set.hdf5
+data_set1.hdf5
 Food_data
 logs
 Training1
+Checkpoint
+tfLite
+test_set.hdf5
+train_set.hdf5
