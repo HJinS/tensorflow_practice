@@ -78,7 +78,7 @@ def get_dataset(train_dir, test_dir):
 def fit_and_save():
     global BASE_DIR
     loss_object = tf.keras.losses.CategoricalCrossentropy()
-    optimizer = tf.keras.optimizers.Adam(learning_rate=0.00001)
+    optimizer = tf.keras.optimizers.Adam(learning_rate=0.000005)
 
     model = ResNet((224, 224, 3), 100)
     model.build(input_shape=(None, 224, 224, 3))
@@ -108,6 +108,8 @@ def fit_and_save():
 
     checkpoint_dir = "Checkpoint"
     checkpoint_path = os.path.join(BASE_DIR, "Food_CNN/" + checkpoint_dir)
+    ckpt = tf.train.Checkpoint(step=tf.Variable(1), optimizer=optimizer,net=model)
+    manager = tf.train.CheckpointManager(ckpt, checkpoint_path, max_to_keep=5)
     # cp_callback = tf.keras.callbacks.ModelCheckpoint(filepath=checkpoint_path, verbose=1, save_weights_only=True, save_freq=5)
     # earlyStopping = tf.keras.callbacks.EarlyStopping(patience=3, monitor='test_loss')
     # tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=log_dir, histogram_freq=1)
@@ -116,7 +118,6 @@ def fit_and_save():
     # model.fit(train, validation_data=test, shuffle=True, batch_size=BATCH_SIZE, epochs=EPOCHS, verbose=2, use_multiprocessing=True, callbacks=[earlyStopping, tensorboard_callback, cp_callback])
 
     for epoch in range(EPOCHS):
-        checkpoint_path = os.path.join(checkpoint_path, str(epoch))
         for step, (images, labels) in enumerate(train):
             train_step(model, images, labels, loss_object, optimizer, train_loss, train_accuracy)
             
@@ -131,14 +132,72 @@ def fit_and_save():
     
         template = "Epoch {}, Loss: {}, Accuracy: {}, TestLoss: {}, Test Accuracy: {}"
         print(template.format(epoch+1, train_loss.result(), train_accuracy.result() * 100, test_loss.result(), test_accuracy.result() * 100))
-        if epoch % 10 == 0:
-            model.save_weights(checkpoint_path)
+        ckpt.step.assign_add(1)
+        if int(ckpt.step) % 10 == 0:
+            save_path = manager.save()
+            print("Saved checkpoint for step {}: {}".format(int(ckpt.step), save_path))
         train_loss.reset_states()
         train_accuracy.reset_states()
         test_loss.reset_states()
         test_accuracy.reset_states()
 
     model.save(model_save_path)
+
+def keep_training():
+
+    EPOCHS = 100
+    BATCH_SIZE = 64
+
+    model = ResNet((224, 224, 3), 100)
+    model.build(input_shape=(None, 224, 224, 3))
+    checkpoint_dir = "Checkpoint"
+    checkpoint_path = os.path.join(BASE_DIR, "Food_CNN/" + checkpoint_dir)
+    loss_object = tf.keras.losses.CategoricalCrossentropy()
+    optimizer = tf.keras.optimizers.Adam(learning_rate=0.000005)
+
+    ckpt = tf.train.Checkpoint(step=tf.Variable(1), optimizer=optimizer, net=model)
+    manager = tf.train.CheckpointManager(ckpt, checkpoint_path, max_to_keep=5)
+    ckpt.restore(manager.latest_checkpoint)
+
+    log_dir = "logs/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+
+    x_train = tfio.IODataset.from_hdf5("train_set.hdf5", dataset="/x_data")
+    y_train = tfio.IODataset.from_hdf5("train_set.hdf5", dataset="/y_data")
+    x_test = tfio.IODataset.from_hdf5("test_set.hdf5", dataset="/x_data")
+    y_test = tfio.IODataset.from_hdf5("test_set.hdf5", dataset="/y_data")
+
+    train_loss = tf.keras.metrics.Mean(name='train_loss')
+    train_accuracy = tf.keras.metrics.CategoricalAccuracy(name='train_accuracy')
+    test_loss = tf.keras.metrics.Mean(name='test_loss')
+    test_accuracy = tf.keras.metrics.CategoricalAccuracy(name='test_accuracy')
+
+    summary_writer = tf.summary.create_file_writer(log_dir)
+
+    train = tf.data.Dataset.zip((x_train, y_train)).shuffle(10000).batch(BATCH_SIZE)
+    test = tf.data.Dataset.zip((x_test, y_test)).shuffle(10000).batch(BATCH_SIZE)
+
+    for epoch in range(EPOCHS):
+        for step, (images, labels) in enumerate(train):
+            train_step(model, images, labels, loss_object, optimizer, train_loss, train_accuracy)
+            
+        for step, (test_images, test_labels) in enumerate(test):
+            test_step(model, test_images, test_labels, loss_object, test_loss, test_accuracy)
+        
+        with summary_writer.as_default():
+            tf.summary.scalar('train_loss', train_loss.result(), step=epoch)
+            tf.summary.scalar('train_accuracy', train_accuracy.result() * 100, step=epoch)
+            tf.summary.scalar('test_loss', test_loss.result(), step=epoch)
+            tf.summary.scalar('test_accuracy', test_accuracy.result() * 100, step=epoch)
+    
+        template = "Epoch {}, Loss: {}, Accuracy: {}, TestLoss: {}, Test Accuracy: {}"
+        print(template.format(epoch+1, train_loss.result(), train_accuracy.result() * 100, test_loss.result(), test_accuracy.result() * 100))
+        if int(ckpt.step) % 10 == 0:
+            save_path = manager.save()
+            print("Saved checkpoint for step {}: {}".format(int(ckpt.step), save_path))
+        train_loss.reset_states()
+        train_accuracy.reset_states()
+        test_loss.reset_states()
+        test_accuracy.reset_states()
 
 class ResidualUnit(tf.keras.Model):
     def __init__(self, filter_in, filter_out):
@@ -222,7 +281,7 @@ class ResNet(tf.keras.Model):
 
         self.pool2 = tf.keras.layers.GlobalAveragePooling2D()
 
-        self.dropout = tf.keras.layers.Dropout(0.7)
+        self.dropout = tf.keras.layers.Dropout(0.4)
 
         self.dense1 = tf.keras.layers.Dense(1000, activation=tf.nn.relu)
         self.dense2 = tf.keras.layers.Dense(output_dim, activation=tf.nn.softmax)
@@ -359,5 +418,6 @@ def convert_to_tfLite():
 #         print("---------------ERROR-----------------")
 
 with tf.device('/GPU:0'):
+    # keep_training()
     fit_and_save()
     # validate_model()
