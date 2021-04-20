@@ -191,6 +191,7 @@ def keep_training():
     
         template = "Epoch {}, Loss: {}, Accuracy: {}, TestLoss: {}, Test Accuracy: {}"
         print(template.format(epoch+1, train_loss.result(), train_accuracy.result() * 100, test_loss.result(), test_accuracy.result() * 100))
+        ckpt.step.assign_add(1)
         if int(ckpt.step) % 10 == 0:
             save_path = manager.save()
             print("Saved checkpoint for step {}: {}".format(int(ckpt.step), save_path))
@@ -281,9 +282,9 @@ class ResNet(tf.keras.Model):
 
         self.pool2 = tf.keras.layers.GlobalAveragePooling2D()
 
-        self.dropout = tf.keras.layers.Dropout(0.4)
+        self.dropout = tf.keras.layers.Dropout(0.75)
 
-        self.dense1 = tf.keras.layers.Dense(1000, activation=tf.nn.relu)
+        self.dense1 = tf.keras.layers.Dense(400, activation=tf.nn.relu)
         self.dense2 = tf.keras.layers.Dense(output_dim, activation=tf.nn.softmax)
 
     def call(self, x, training=False):
