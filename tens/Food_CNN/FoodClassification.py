@@ -6,6 +6,8 @@ import tensorflow_datasets as tfds
 from tensorflow.keras.preprocessing import image
 from tensorflow.keras.utils import normalize
 from sklearn.model_selection import train_test_split
+import pickle
+
 
 BASE_DIR = os.path.abspath('..')
 img_dir = os.path.join(BASE_DIR,"Food_data\dataset")
@@ -24,12 +26,11 @@ def get_dataset(train_dir, test_dir):
     idx = 0
 
     img_generator = image.ImageDataGenerator(
-            rotation_range = 20,
-            zoom_range = 0.10,
-            shear_range = 0.1,
-            width_shift_range = 0.10,
-            height_shift_range = 0.10,
-            vertical_flip = True)
+            rotation_range = 5,
+            zoom_range = 0.01,
+            shear_range = 0.01,
+            width_shift_range = 0.01,
+            height_shift_range = 0.01)
     
     categories = []
     for e in train_list:
@@ -74,11 +75,13 @@ def get_dataset(train_dir, test_dir):
             idx += 1
             if idx % 1000 == 0:
                 print("idx = ", idx)
+    print("test over")
+    print("idx = ", idx)
 
 def fit_and_save():
     global BASE_DIR
     loss_object = tf.keras.losses.CategoricalCrossentropy()
-    optimizer = tf.keras.optimizers.Adam(learning_rate=0.000005)
+    optimizer = tf.keras.optimizers.Adam(learning_rate=0.000004)
 
     model = ResNet((224, 224, 3), 100)
     model.build(input_shape=(None, 224, 224, 3))
@@ -103,19 +106,13 @@ def fit_and_save():
     x_test = tfio.IODataset.from_hdf5("test_set.hdf5", dataset="/x_data")
     y_test = tfio.IODataset.from_hdf5("test_set.hdf5", dataset="/y_data")
 
-    train = tf.data.Dataset.zip((x_train, y_train)).shuffle(10000).batch(BATCH_SIZE)
-    test = tf.data.Dataset.zip((x_test, y_test)).shuffle(10000).batch(BATCH_SIZE)
+    train = tf.data.Dataset.zip((x_train, y_train)).shuffle(80060).batch(BATCH_SIZE)
+    test = tf.data.Dataset.zip((x_test, y_test)).shuffle(19955).batch(BATCH_SIZE)
 
     checkpoint_dir = "Checkpoint"
     checkpoint_path = os.path.join(BASE_DIR, "Food_CNN/" + checkpoint_dir)
     ckpt = tf.train.Checkpoint(step=tf.Variable(1), optimizer=optimizer,net=model)
     manager = tf.train.CheckpointManager(ckpt, checkpoint_path, max_to_keep=5)
-    # cp_callback = tf.keras.callbacks.ModelCheckpoint(filepath=checkpoint_path, verbose=1, save_weights_only=True, save_freq=5)
-    # earlyStopping = tf.keras.callbacks.EarlyStopping(patience=3, monitor='test_loss')
-    # tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=log_dir, histogram_freq=1)
-    
-    # model.compile(optimizer=optimizer, loss=loss_object, metrics=[train_accuracy])
-    # model.fit(train, validation_data=test, shuffle=True, batch_size=BATCH_SIZE, epochs=EPOCHS, verbose=2, use_multiprocessing=True, callbacks=[earlyStopping, tensorboard_callback, cp_callback])
 
     for epoch in range(EPOCHS):
         for step, (images, labels) in enumerate(train):
@@ -137,9 +134,7 @@ def fit_and_save():
             save_path = manager.save()
             print("Saved checkpoint for step {}: {}".format(int(ckpt.step), save_path))
         train_loss.reset_states()
-        train_accuracy.reset_states()
         test_loss.reset_states()
-        test_accuracy.reset_states()
 
     model.save(model_save_path)
 
@@ -153,7 +148,9 @@ def keep_training():
     checkpoint_dir = "Checkpoint"
     checkpoint_path = os.path.join(BASE_DIR, "Food_CNN/" + checkpoint_dir)
     loss_object = tf.keras.losses.CategoricalCrossentropy()
-    optimizer = tf.keras.optimizers.Adam(learning_rate=0.000005)
+    optimizer = tf.keras.optimizers.Adam(learning_rate=0.000004)
+    save_dir = "Food_CNN\Training1\\" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    model_save_path = os.path.join(BASE_DIR, save_dir)
 
     ckpt = tf.train.Checkpoint(step=tf.Variable(1), optimizer=optimizer, net=model)
     manager = tf.train.CheckpointManager(ckpt, checkpoint_path, max_to_keep=5)
@@ -173,10 +170,11 @@ def keep_training():
 
     summary_writer = tf.summary.create_file_writer(log_dir)
 
-    train = tf.data.Dataset.zip((x_train, y_train)).shuffle(10000).batch(BATCH_SIZE)
-    test = tf.data.Dataset.zip((x_test, y_test)).shuffle(10000).batch(BATCH_SIZE)
+    train = tf.data.Dataset.zip((x_train, y_train)).shuffle(80060).batch(BATCH_SIZE)
+    test = tf.data.Dataset.zip((x_test, y_test)).shuffle(19955).batch(BATCH_SIZE)
 
-    for epoch in range(EPOCHS):
+    last_step = int(ckpt.step)
+    for epoch in range(last_step, EPOCHS):
         for step, (images, labels) in enumerate(train):
             train_step(model, images, labels, loss_object, optimizer, train_loss, train_accuracy)
             
@@ -196,41 +194,45 @@ def keep_training():
             save_path = manager.save()
             print("Saved checkpoint for step {}: {}".format(int(ckpt.step), save_path))
         train_loss.reset_states()
-        train_accuracy.reset_states()
         test_loss.reset_states()
-        test_accuracy.reset_states()
+    model.save(model_save_path)
 
 class ResidualUnit(tf.keras.Model):
     def __init__(self, filter_in, filter_out):
         super().__init__()
         filter_n = filter_out // 4
 
-        self.conv1 = tf.keras.layers.Conv2D(filter_n, kernel_size=(1, 1), strides=1, padding="valid")
         self.bn1 = tf.keras.layers.BatchNormalization()
+        self.conv1 = tf.keras.layers.Conv2D(filter_n, kernel_size=(1, 1), strides=1, padding="valid")
+        self.dropout1 = tf.keras.layers.Dropout(0.5)
 
-        self.conv2 = tf.keras.layers.Conv2D(filter_n, kernel_size=(3, 3), strides=1, padding="same")
         self.bn2 = tf.keras.layers.BatchNormalization()
-        
-        self.conv3 = tf.keras.layers.Conv2D(filter_out, kernel_size=(1, 1), strides=1, padding="valid")
-        self.bn3 = tf.keras.layers.BatchNormalization()
+        self.conv2 = tf.keras.layers.Conv2D(filter_n, kernel_size=(3, 3), strides=1, padding="same")
+        self.dropout2 = tf.keras.layers.Dropout(0.5)
 
+        self.bn3 = tf.keras.layers.BatchNormalization()
+        self.conv3 = tf.keras.layers.Conv2D(filter_out, kernel_size=(1, 1), strides=1, padding="valid")
+        
         self.shortcut = self._shortcut(filter_in, filter_out)
     
-    def call(self, x, training=False):
-        h = self.conv1(x)
-        h = self.bn1(h, training=training)
-        h = tf.nn.relu(h)
+    def call(self, x):
         
-        h = self.conv2(h)
-        h = self.bn2(h, training=training)
+        h = self.bn1(x)
         h = tf.nn.relu(h)
+        h = self.conv1(h)
+        h = self.dropout1(h)
 
-        h = self.conv3(h)
-        h = self.bn3(h, training=training)
+        h = self.bn2(h)
+        h = tf.nn.relu(h)
+        h = self.conv2(h)
+        h = self.dropout2(h)
+
+        h = self.bn3(h)
         shortcut = self.shortcut(x)
-        h = h + shortcut
+        h = tf.nn.relu(h)
+        h = self.conv3(h)
+        y = h + shortcut
         
-        y = tf.nn.relu(h)
         return y
 
     def _shortcut(self, filter_in, filter_out):
@@ -282,57 +284,59 @@ class ResNet(tf.keras.Model):
 
         self.pool2 = tf.keras.layers.GlobalAveragePooling2D()
 
-        self.dropout = tf.keras.layers.Dropout(0.75)
+        self.dense1 = tf.keras.layers.Dense(700, activation=tf.nn.relu)
+        self.dropout1 = tf.keras.layers.Dropout(0.7)
+        self.dense2 = tf.keras.layers.Dense(400, activation=tf.nn.relu)
+        self.dropout2 = tf.keras.layers.Dropout(0.7)
+        self.dense3 = tf.keras.layers.Dense(output_dim, activation=tf.nn.softmax)
 
-        self.dense1 = tf.keras.layers.Dense(400, activation=tf.nn.relu)
-        self.dense2 = tf.keras.layers.Dense(output_dim, activation=tf.nn.softmax)
-
-    def call(self, x, training=False):
+    def call(self, x):
         x = self.conv1(x)
-        x = self.bn(x, training=training)
+        x = self.bn(x)
         x = tf.nn.relu(x)
 
         x = self.pool1(x)
 
-        x = self.res1(x, training=training)
-        x = self.res2(x, training=training)
-        x = self.res3(x, training=training)
+        x = self.res1(x)
+        x = self.res2(x)
+        x = self.res3(x)
         
         x = self.conv2(x)
 
-        x = self.res4(x, training=training)
-        x = self.res5(x, training=training)
-        x = self.res6(x, training=training)
-        x = self.res7(x, training=training)
+        x = self.res4(x)
+        x = self.res5(x)
+        x = self.res6(x)
+        x = self.res7(x)
 
         x = self.conv3(x)
 
-        x = self.res8(x, training=training)
-        x = self.res9(x, training=training)
-        x = self.res10(x, training=training)
-        x = self.res11(x, training=training)
-        x = self.res12(x, training=training)
-        x = self.res13(x, training=training)
+        x = self.res8(x)
+        x = self.res9(x)
+        x = self.res10(x)
+        x = self.res11(x)
+        x = self.res12(x)
+        x = self.res13(x)
 
         x = self.conv4(x)
 
-        x = self.res14(x, training=training)
-        x = self.res15(x, training=training)
-        x = self.res16(x, training=training)
+        x = self.res14(x)
+        x = self.res15(x)
+        x = self.res16(x)
 
         x = self.pool2(x)
-        
-        x = self.dropout(x)
 
         x = self.dense1(x)
-        return self.dense2(x)
+        x = self.dropout1(x)
+        x = self.dense2(x)
+        x = self.dropout2(x)
+        return self.dense3(x)
 
 
 
 @tf.function
 def train_step(model, images, labels, loss_object, optimizer, train_loss, train_accuracy):
     with tf.GradientTape() as tape:
-        predictions = model(images, training=True)
+        predictions = model(images)
         loss = loss_object(labels, predictions)
 
     gradients = tape.gradient(loss, model.trainable_variables)
@@ -342,7 +346,7 @@ def train_step(model, images, labels, loss_object, optimizer, train_loss, train_
 
 @tf.function
 def test_step(model, images, labels, loss_object, test_loss, test_accuracy):
-    predictions = model(images,  training=False )
+    predictions = model(images)
 
     t_loss = loss_object(labels, predictions)
     test_loss(t_loss)
@@ -377,11 +381,12 @@ def validate_model():
 
 def convert_to_tfLite():
     
-    dir_list = os.listdir(img_dir)
+    food_dir = os.path.join(img_dir, "training")
+    dir_list = os.listdir(food_dir)
 
-    model_path = os.path.join(BASE_DIR, 'Food_CNN/Training1/20210413-155855')
-    save_path = os.path.join(BASE_DIR, 'Food_CNN/tfLite/test_model1.tflite')
-    label_path = os.path.join(BASE_DIR, 'Food_CNN/tfLite/test_label.txt')
+    model_path = os.path.join(BASE_DIR, 'Food_CNN/Training1/20210501-184122')
+    save_path = os.path.join(BASE_DIR, 'Food_CNN/tfLite/test_model2.tflite')
+    label_path = os.path.join(BASE_DIR, 'Food_CNN/tfLite/test_label1.txt')
     
     converter = tf.lite.TFLiteConverter.from_saved_model(model_path)
     converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS, tf.lite.OpsSet.SELECT_TF_OPS]
@@ -395,8 +400,12 @@ def convert_to_tfLite():
     with open(save_path, 'wb') as f:
         f.write(tflite_model)
     f.close()
+
     with open(label_path, 'w') as f:
-        f.write(labels)
+        for idx, e in enumerate(dir_list):
+            label = str(idx) + " " + e + "\n"
+            print(label, end='')
+            f.write(label)
     f.close()
 
 
