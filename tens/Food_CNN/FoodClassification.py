@@ -5,8 +5,6 @@ import shutil, os, h5py, datetime
 import tensorflow_datasets as tfds
 from tensorflow.keras.preprocessing import image
 from tensorflow.keras.utils import normalize
-from sklearn.model_selection import train_test_split
-import pickle
 
 
 BASE_DIR = os.path.abspath('..')
@@ -81,7 +79,7 @@ def get_dataset(train_dir, test_dir):
 def fit_and_save():
     global BASE_DIR
     loss_object = tf.keras.losses.CategoricalCrossentropy()
-    optimizer = tf.keras.optimizers.Adam(learning_rate=0.000004)
+    optimizer = tf.keras.optimizers.Adam(learning_rate=0.000006)
 
     model = ResNet((224, 224, 3), 100)
     model.build(input_shape=(None, 224, 224, 3))
@@ -148,7 +146,7 @@ def keep_training():
     checkpoint_dir = "Checkpoint"
     checkpoint_path = os.path.join(BASE_DIR, "Food_CNN/" + checkpoint_dir)
     loss_object = tf.keras.losses.CategoricalCrossentropy()
-    optimizer = tf.keras.optimizers.Adam(learning_rate=0.000004)
+    optimizer = tf.keras.optimizers.Adam(learning_rate=0.000006)
     save_dir = "Food_CNN\Training1\\" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     model_save_path = os.path.join(BASE_DIR, save_dir)
 
