@@ -8,3 +8,5 @@ Checkpoint
 tfLite
 test_set.hdf5
 train_set.hdf5
+training_2
+validateLogs
